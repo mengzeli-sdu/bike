@@ -81,92 +81,44 @@ int key_times = 0;
   * @retval None
 */
   
+#include "car_task.h"
+
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
+    HAL_Init();
+    SystemClock_Config();
 
-  /* USER CODE END 1 */
+    MX_GPIO_Init();
+    MX_CAN2_Init();
+    MX_TIM3_Init();
+    MX_TIM4_Encoder_Init();      // 编码器模式
+    MX_I2C2_Init();
+    MX_UART8_Init();
+    MX_UART7_Init();
 
-  /* MCU Configuration----------------------------------------------------------*/
+    odrive_init();
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	
-  HAL_Init();
+    imu_init();
+    param_init();
 
-  /* USER CODE BEGIN Init */
+    LL_USART_EnableIT_RXNE(UART8);   // IMU
+    LL_USART_EnableIT_RXNE(UART7);   // 摄像头
 
-  /* USER CODE END Init */
+    servo_init();
 
-  /* Configure the system clock */
-  SystemClock_Config();
+    HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);  // 启动编码器
+    HAL_TIM_Base_Start_IT(&htim3);                   // 2ms 主控制中断
 
-  /* USER CODE BEGIN SysInit */
-  /* USER CODE END SysInit */
+    key_init();
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_CAN2_Init();
-  MX_TIM3_Init();
-	//MX_TIM4_Init();
-	
-  MX_I2C2_Init();
-  MX_UART8_Init();
-	MX_UART7_Init();
-  /* USER CODE BEGIN 2 */
-	
-	odrive_init();
-	
-	imu_init();
-	param_init();
-	LL_USART_EnableIT_RXNE(UART8);
-	LL_USART_EnableIT_RXNE(UART7);
-	servo_init();
-	HAL_TIM_Base_Start_IT(&htim3);
-	//HAL_TIM_Base_Start_IT(&htim4);
-	//HAL_UART_Receive_IT(&huart2,(uint8_t*)buf,1);
-  /* USER CODE END 2 */
-	//oled_init();
-	key_init();
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-	param.scope_flag=0;
-  while (1)
-  {
+    Car_Task_Init();       // 初始化车辆状态机
 
-  /* USER CODE END WHILE */
-// upper_send_data(buf1, 4);
-		//servo_set_duty(2);
-		
-		HAL_Delay(50);
-		//param.angular_zero=param.zer0=2.3;//-0.3;//imu.rol;
-	//	param.scope_flag=1;
-		
-//		if(key_times<=1)//�ر�ɨ��
-//		{
-//		//	oled_flush();
-//			key_flag = Key_Scan();
-//		}
-//		if (key_flag == '1')
-//		{
-//			 key_times ++;
-//			/* USER CODE BEGIN 3 */
-//			 if(key_times==1)
-//			 {
-//				 if(param.scope_flag==0)
-//				 {
-//						param.angular_zero=param.zer0=imu.rol;
-//						param.scope_flag=1;
-//				 }
-//				
-//			 }
-//			 else if(key_times==2)
-//			 {
-//				 param.run_flag=1;
-//			 }
-//		}
-	}
-  /* USER CODE END 3 */
-
+    while(1)
+    {
+        
+        
+        HAL_Delay(50);
+    }
 }
 
 /**
