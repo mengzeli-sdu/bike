@@ -93,17 +93,35 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 函数名称：rate_set
 函数功能：分段设置速度
 */
+#include "car_task.h"
+
 void rate_set()
 {
-	if(param.run_flag==1)//运行后轮
-	{
-		odrive.set_speed1 = 1;
-	}
-	else
-	{
-		odrive.set_speed1=0;
-	}
+    if(car_state == CAR_FINISH)
+    {
+        odrive.set_speed1 = 0;
+        param.run_flag = 0;
+        return;
+    }
 
+    if(car_state == CAR_CROSSWALK)
+    {
+        odrive.set_speed1 = 0;
+        param.run_flag = 0;
+        return;
+    }
+
+    if(car_state == CAR_NORMAL || car_state == CAR_AVOID)
+    {
+        if(param.run_flag == 1)
+        {
+            odrive.set_speed1 = CAR_BASE_SPEED;
+        }
+        else
+        {
+            odrive.set_speed1 = 0;
+        }
+    }
 }
 
 
