@@ -1,30 +1,66 @@
 #include "upper.h"
 #include "usart.h"
-#include "task.h"
-#include "imu.h"
-extern imu_t imu;
-#define FHead 0xA5
-int16_t delta_x_buf;//图像返回值
-int16_t error_y;
-uint8_t buf[1];
-uint8_t buf_temp[1];
-uint8_t state;
-int cnttt;
-uint8_t buf2[4];
-uint8_t ii = 0;
-uint8_t low_speed_flag=0;
-uint8_t head_buf=0;//记录帧头
-uint8_t back_center_data[5] = {0xa5,0x01,0x01,0x00,0x01^0x01^0x00};
-extern float distance;
+#include "car_task.h"
+
+#define RX_HEAD 0xA5
+
 void UART7_IRQHandler(void)
 {
-}
+    static uint8_t rx_state = 0;
+    static uint8_t cmd = 0;
+    static uint8_t err_h = 0;
+    static uint8_t err_l = 0;
+    static uint8_t checksum = 0;
 
-void back_center_send(void)
-{
-	static uint8_t back_center_i = 0;
-	LL_USART_TransmitData8(UART7,back_center_data[back_center_i]);
-	while((UART7->SR&0X40) == 0){};
-	back_center_i++;
-	back_center_i %= 5;
+    uint8_t data;
+
+    if(LL_USART_IsActiveFlag_RXNE(UART7) && LL_USART_IsEnabledIT_RXNE(UART7))
+    {
+        data = LL_USART_ReceiveData8(UART7);
+
+        switch(rx_state)
+        {
+            case 0:
+                if(data == RX_HEAD)
+                {
+                    rx_state = 1;
+                }
+                break;
+
+            case 1:
+                cmd = data;
+                rx_state = 2;
+                break;
+
+            case 2:
+                err_h = data;
+                rx_state = 3;
+                break;
+
+            case 3:
+                err_l = data;
+                rx_state = 4;
+                break;
+
+            case 4:
+                checksum = data;
+
+                if(checksum == (RX_HEAD ^ cmd ^ err_h ^ err_l))
+                {
+                    int16_t err;
+                    err = (int16_t)((err_h << 8) | err_l);
+
+                    Camera_ProcessFrame(cmd, err);
+                }
+
+                rx_state = 0;
+                break;
+
+            default:
+                rx_state = 0;
+                break;
+        }
+
+        LL_USART_EnableIT_RXNE(UART7);
+    }
 }
