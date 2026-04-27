@@ -5,6 +5,7 @@
 #include "servo.h"
 #include "upper.h"
 #include "math.h"
+#include "car_task.h
 #define  FS 3
 #if FS==1  
 	float fast_rate=8.0f,slow_rate=3.0f,mid_rate=5.0f;
@@ -14,62 +15,87 @@
 		float fast_rate=12.0f,slow_rate=5.50f,mid_rate=6.50f;
 #endif
 //0.9
-#define fly_wheel_rate_limit 15 //¶¯Á¿ÂÖËÙ¶ÈÏŞ·ù
+#define fly_wheel_rate_limit 15 //åŠ¨é‡è½®é€Ÿåº¦é™å¹…
 #define dt 0.100f
 #define PI 3.1415926f
 paramTypeDef param;
-float PWM_X,PWM_accel,PWM_Final;// PWMÖĞ¼äÁ¿
+float PWM_X,PWM_accel,PWM_Final;// PWMä¸­é—´é‡
 extern int key_times;
-int cnt;//½Ç¶È»·¼ÆÊı
-int cnt1;//ËÙ¶È»·¼ÆÊı
-int cnt_vel_callback1;//·ÉÂÖËÙ¶È·´À¡¼ÆÊı
-int cnt_vel_set1;//·ÉÂÖËÙ¶È·¢ËÍ¼ÆÊı
-int cnt_balance;//×ÔĞĞ³µÆ½ºâ¿ØÖÆÖÜÆÚ¼ÆÊı
-int cnt_rate;//ËÙ¶ÈÉèÖÃ¼ÆÊı
-float rate;//ËÀÇøÍâ·ÉÂÖËÙ¶È
-float start_yaw0;//¿ªÊ¼»ı·ÖÊ±µÄÆ«º½½Ç
-float last_rate=0;//¼ÇÂ¼ÉÏÒ»Ê±¿ÌµÄËÙ¶È
-//¶¨Ê±Æ÷ 2ms
+int cnt;//è§’åº¦ç¯è®¡æ•°
+int cnt1;//é€Ÿåº¦ç¯è®¡æ•°
+int cnt_vel_callback1;//é£è½®é€Ÿåº¦åé¦ˆè®¡æ•°
+int cnt_vel_set1;//é£è½®é€Ÿåº¦å‘é€è®¡æ•°
+int cnt_balance;//è‡ªè¡Œè½¦å¹³è¡¡æ§åˆ¶å‘¨æœŸè®¡æ•°
+int cnt_rate;//é€Ÿåº¦è®¾ç½®è®¡æ•°
+float rate;//æ­»åŒºå¤–é£è½®é€Ÿåº¦
+float start_yaw0;//å¼€å§‹ç§¯åˆ†æ—¶çš„åèˆªè§’
+float last_rate=0;//è®°å½•ä¸Šä¸€æ—¶åˆ»çš„é€Ÿåº¦
+//å®šæ—¶å™¨ 2ms
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim == &htim3)
-	{
-		imu_get();//ÍÓÂİÒÇ¶ÁÈ¡
-		
-		cnt_vel_set1++;
-    cnt_balance++;	
-		cnt_rate++;
-		if(cnt_rate>=50)
-		{
-			cnt_rate=0;
-			rate_set();//ËÙ¶ÈÉèÖÃ
-		}
-		if(param.scope_flag == 1)//·ÉÂÖÆ½ºâ¿ØÖÆÖÜÆÚ 2ms
-		{
-				balance();
-				cnt_balance=0;
-		}
-		if(cnt_vel_set1 >= 1)//odrive canÍ¨ĞÅÖÜÆÚ 2ms   
-		{				
-				cnt_vel_callback1++;
-		  	odrive_speed_ctrl(0,odrive.set_speed0);
-				
-				cnt_vel_set1 = 0;
-				if(cnt_vel_callback1 == 20) 
-				{
-						cnt_vel_callback1 = 0;
-				    odrive_speed_ctrl(1,-odrive.set_speed1);
-				}
-		}
-	}
+    if(htim == &htim3)
+    {
+        imu_get();       // è¯»å– IMU
+
+        /********************************
+         * æ–°å¢ï¼šè½¦è¾†çŠ¶æ€æœº
+         * æ­£å¸¸ã€é¿éšœã€äººè¡Œé“ã€ç»ˆç‚¹éƒ½åœ¨è¿™é‡Œå¤„ç†
+         ********************************/
+        Car_2ms_Task();
+
+        cnt_vel_set1++;
+        cnt_balance++;
+        cnt_rate++;
+
+        /********************************
+         * åŸæ¥çš„é€Ÿåº¦è®¾ç½®å¯ä»¥ä¿ç•™ï¼Œ
+         * ä½† rate_set é‡Œé¢è¦æ ¹æ®çŠ¶æ€å†³å®šåè½®é€Ÿåº¦
+         ********************************/
+        if(cnt_rate >= 50)
+        {
+            cnt_rate = 0;
+            rate_set();
+        }
+
+        /********************************
+         * å¹³è¡¡æ§åˆ¶å¿…é¡»ä¸€ç›´æ‰§è¡Œ
+         ********************************/
+        if(param.scope_flag == 1)
+        {
+            balance();
+            cnt_balance = 0;
+        }
+
+        /********************************
+         * ODrive CAN å‘é€
+         ********************************/
+        if(cnt_vel_set1 >= 1)
+        {
+            cnt_vel_callback1++;
+
+            // 0 å·è½´ï¼šé£è½®ï¼Œç”¨äºå¹³è¡¡
+            odrive_speed_ctrl(0, odrive.set_speed0);
+
+            cnt_vel_set1 = 0;
+
+            if(cnt_vel_callback1 == 20)
+            {
+                cnt_vel_callback1 = 0;
+
+                // 1 å·è½´ï¼šåè½®
+                odrive_speed_ctrl(1, -odrive.set_speed1);
+            }
+        }
+    }
 }
 /*
-º¯ÊıÃû³Æ£ºrate_set
-º¯Êı¹¦ÄÜ£º·Ö¶ÎÉèÖÃËÙ¶È
+å‡½æ•°åç§°ï¼šrate_set
+å‡½æ•°åŠŸèƒ½ï¼šåˆ†æ®µè®¾ç½®é€Ÿåº¦
 */
 void rate_set()
 {
-	if(param.run_flag==1)//ÔËĞĞºóÂÖ
+	if(param.run_flag==1)//è¿è¡Œåè½®
 	{
 		odrive.set_speed1 = 1;
 	}
@@ -81,7 +107,7 @@ void rate_set()
 }
 
 
-//pid²ÎÊı³õÊ¼»¯
+//pidå‚æ•°åˆå§‹åŒ–
 void param_init(){
     param.angular_kp = -7.6;//-5.45;//-9;//4;//-10.6;
     param.angular_ki = 0;
@@ -105,11 +131,11 @@ void param_init(){
 		param.run_flag=0;
 		
     param.Steer_Kp = 1.5;
-    param.Steer_Ki = 0.2;//Ô¤·ÀËÀÇø
+    param.Steer_Ki = 0.2;//é¢„é˜²æ­»åŒº
     param.Steer_Kd = 0;
 
 }
-//½ÇËÙ¶È»·pid
+//è§’é€Ÿåº¦ç¯pid
 float Angle_Velocity(float Gyro,float Gyro_Target)
 {
     float Angle_Velocity_Bias;
@@ -123,22 +149,22 @@ float Angle_Velocity(float Gyro,float Gyro_Target)
 			Angle_Velocity_Integral = -10000;        
 		
     PWM_Out = param.angular_v_kp * Angle_Velocity_Bias + param.angular_v_ki * Angle_Velocity_Integral + param.angular_v_kd * (Angle_Velocity_Bias - Angle_Velocity_Last_Bias);
-    Angle_Velocity_Last_Bias = Angle_Velocity_Bias;                             //±£ÁôÉÏ´ÎÎó²î
+    Angle_Velocity_Last_Bias = Angle_Velocity_Bias;                             //ä¿ç•™ä¸Šæ¬¡è¯¯å·®
     return PWM_Out;
 }
-//½Ç¶È»·pid
+//è§’åº¦ç¯pid
 float X_balance_Control(float Angle,float Angle_Zero,float gyro)
 {
      float PWM,Bias;
      static float error;
-     Bias=Angle-Angle_Zero;                                            //»ñÈ¡Æ«²î
-     error+=Bias;                                                      //Æ«²îÀÛ»ı
-     if(error>+30) error=+30;                                          //»ı·ÖÏŞ·ù
-     if(error<-30) error=-30;                                          //»ı·ÖÏŞ·ù
-     PWM=param.angular_kp*Bias + param.angular_ki*error + (gyro)*param.angular_kd;   //»ñÈ¡×îÖÕÊıÖµ
+     Bias=Angle-Angle_Zero;                                            //è·å–åå·®
+     error+=Bias;                                                      //åå·®ç´¯ç§¯
+     if(error>+30) error=+30;                                          //ç§¯åˆ†é™å¹…
+     if(error<-30) error=-30;                                          //ç§¯åˆ†é™å¹…
+     PWM=param.angular_kp*Bias + param.angular_ki*error + (gyro)*param.angular_kd;   //è·å–æœ€ç»ˆæ•°å€¼
      return PWM;
 }
-//ËÙ¶È»·pid
+//é€Ÿåº¦ç¯pid
 float Velocity_Control(int encoder,int target_encoder)
 {
     float encoder_bias,Velocity;
@@ -146,9 +172,9 @@ float Velocity_Control(int encoder,int target_encoder)
     encoder_bias = encoder - target_encoder;
     encoder_bias_integral += encoder_bias;
     if(encoder_bias_integral > +200) 
-			encoder_bias_integral = +200;                    //»ı·ÖÏŞ·ù
+			encoder_bias_integral = +200;                    //ç§¯åˆ†é™å¹…
     if(encoder_bias_integral < -200) 
-			encoder_bias_integral = -200;                    //»ı·ÖÏŞ·ùÊÇ500
+			encoder_bias_integral = -200;                    //ç§¯åˆ†é™å¹…æ˜¯500
     Velocity = encoder_bias * param.fly_wheel_speed_kp/10 + encoder_bias_integral * param.fly_wheel_speed_ki/1000;
     return Velocity;
 }
@@ -177,7 +203,7 @@ void balance(void)
 		}    
 		if(param.scope_flag==0)
 			PWM_Final=0;
-   // odrive.set_speed0 =1;½Ç¶È×óÕıÓÒ¸º µç»ú×óÕıÓÒ¸º  
+   // odrive.set_speed0 =1;è§’åº¦å·¦æ­£å³è´Ÿ ç”µæœºå·¦æ­£å³è´Ÿ  
 		
 }
 
