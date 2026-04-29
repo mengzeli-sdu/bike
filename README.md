@@ -1,14 +1,5 @@
 # 基于 STM32 与 ODrive 的室外无人驾驶平衡自行车控制系统
 
-<p align="center">
-  <img src="docs/team_photo.jpg" width="80%" alt="第二十届全国大学生智能汽车竞赛总决赛参赛合影">
-</p>
-
-<p align="center">
-  <b>2025 年第二十届全国大学生智能汽车竞赛全国总决赛 · 室外无人驾驶自行车挑战赛</b>
-</p>
-
----
 
 ## 项目简介
 
