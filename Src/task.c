@@ -1,110 +1,92 @@
 #include "task.h"
-#include "tim.h" 
+#include "tim.h"
 #include "imu.h"
 #include "odrive.h"
 #include "servo.h"
 #include "upper.h"
 #include "math.h"
-#include "car_task.h
-#define  FS 3
-#if FS==1  
-	float fast_rate=8.0f,slow_rate=3.0f,mid_rate=5.0f;
+#include "car_task.h"
+
+#define FS 3
+#if FS==1
+    float fast_rate=8.0f,slow_rate=3.0f,mid_rate=5.0f;
 #elif FS==2
-	float fast_rate=10.0f,slow_rate=4.50f,mid_rate=6.50f;
-	#else 
-		float fast_rate=12.0f,slow_rate=5.50f,mid_rate=6.50f;
+    float fast_rate=10.0f,slow_rate=4.50f,mid_rate=6.50f;
+#else
+    float fast_rate=12.0f,slow_rate=5.50f,mid_rate=6.50f;
 #endif
-//0.9
-#define fly_wheel_rate_limit 15 //动量轮速度限幅
-#define dt 0.100f
+
+#define fly_wheel_rate_limit 15
 #define PI 3.1415926f
+
 paramTypeDef param;
-float PWM_X,PWM_accel,PWM_Final;// PWM中间量
+float PWM_X, PWM_accel, PWM_Final;
+
 extern int key_times;
-int cnt;//角度环计数
-int cnt1;//速度环计数
-int cnt_vel_callback1;//飞轮速度反馈计数
-int cnt_vel_set1;//飞轮速度发送计数
-int cnt_balance;//自行车平衡控制周期计数
-int cnt_rate;//速度设置计数
-float rate;//死区外飞轮速度
-float start_yaw0;//开始积分时的偏航角
-float last_rate=0;//记录上一时刻的速度
-//定时器 2ms
+extern imu_t imu;
+extern OdirveTypeDef odrive;
+extern uint8_t low_speed_flag;
+
+int cnt;
+int cnt1;
+int cnt_vel_send;
+int cnt_back_send;
+int cnt_rate;
+int cnt_odom;
+float last_rate = 0;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if(htim == &htim3)
     {
-        imu_get();       // 读取 IMU
+        imu_get();
 
-        /********************************
-         * 新增：车辆状态机
-         * 正常、避障、人行道、终点都在这里处理
-         ********************************/
+        /* 上层车辆状态机：循迹、避障、人行道、终点 */
         Car_2ms_Task();
 
-        cnt_vel_set1++;
-        cnt_balance++;
+        cnt_vel_send++;
+        cnt_back_send++;
         cnt_rate++;
+        cnt_odom++;
 
-        /********************************
-         * 原来的速度设置可以保留，
-         * 但 rate_set 里面要根据状态决定后轮速度
-         ********************************/
-        if(cnt_rate >= 50)
+        if(cnt_rate >= 50)  // 100ms
         {
             cnt_rate = 0;
             rate_set();
         }
 
-        /********************************
-         * 平衡控制必须一直执行
-         ********************************/
         if(param.scope_flag == 1)
         {
             balance();
-            cnt_balance = 0;
         }
 
-        /********************************
-         * ODrive CAN 发送
-         ********************************/
-        if(cnt_vel_set1 >= 1)
+        /* 每 20ms 请求一次 ODrive 编码器速度，否则 now_speed0/1 不会实时更新 */
+        if(cnt_odom >= 10)
         {
-            cnt_vel_callback1++;
+            cnt_odom = 0;
+            odrive_vel_callback(0);
+            odrive_vel_callback(1);
+        }
 
-            // 0 号轴：飞轮，用于平衡
+        /* 0 号轴：飞轮，2ms 发送一次 */
+        if(cnt_vel_send >= 1)
+        {
+            cnt_vel_send = 0;
             odrive_speed_ctrl(0, odrive.set_speed0);
+        }
 
-            cnt_vel_set1 = 0;
-
-            if(cnt_vel_callback1 == 20)
-            {
-                cnt_vel_callback1 = 0;
-
-                // 1 号轴：后轮
-                odrive_speed_ctrl(1, -odrive.set_speed1);
-            }
+        /* 1 号轴：后轮，40ms 发送一次 */
+        if(cnt_back_send >= 20)
+        {
+            cnt_back_send = 0;
+            odrive_speed_ctrl(1, -odrive.set_speed1);
         }
     }
 }
-/*
-函数名称：rate_set
-函数功能：分段设置速度
-*/
-#include "car_task.h"
 
-void rate_set()
+void rate_set(void)
 {
-    if(car_state == CAR_FINISH)
-    {
-        odrive.set_speed1 = 0;
-        param.run_flag = 0;
-        return;
-    }
-
-    if(car_state == CAR_CROSSWALK)
+    if(car_state == CAR_FINISH || car_state == CAR_CROSSWALK)
     {
         odrive.set_speed1 = 0;
         param.run_flag = 0;
@@ -124,123 +106,134 @@ void rate_set()
     }
 }
 
-
-//pid参数初始化
-void param_init(){
-    param.angular_kp = -7.6;//-5.45;//-9;//4;//-10.6;
+void param_init(void)
+{
+    param.angular_kp = -7.6f;
     param.angular_ki = 0;
-    param.angular_kd = -1.4;//-4.7;//-4.8;
-	
-    param.angular_v_kp = 1.4;//-2.1;
-    param.angular_v_ki = 0; 
-    param.angular_v_kd = 1.1;//;//-0.99;
-	
-    param.fly_wheel_speed_kp = -1.2;//0.8;//0.8;//0.81;
-    param.fly_wheel_speed_ki = -0.6;
+    param.angular_kd = -1.4f;
+
+    param.angular_v_kp = 1.4f;
+    param.angular_v_ki = 0;
+    param.angular_v_kd = 1.1f;
+
+    param.fly_wheel_speed_kp = -1.2f;
+    param.fly_wheel_speed_ki = -0.6f;
     param.fly_wheel_speed_kd = 0;
-	
-	  param.zero_speed_kp=0;
-	  param.zero_speed_kd=0;
-	  param.zero_speed_ki=0;//0.0002;
-	
-    param.angular_zero = 2.1;
+
+    param.zero_speed_kp = 0;
+    param.zero_speed_kd = 0;
+    param.zero_speed_ki = 0;
+
+    param.angular_zero = 2.1f;
 
     param.scope_flag = 0;
-		param.run_flag=0;
-		
-    param.Steer_Kp = 1.5;
-    param.Steer_Ki = 0.2;//预防死区
-    param.Steer_Kd = 0;
+    param.run_flag = 0;
 
+    param.Steer_Kp = 1.5f;
+    param.Steer_Ki = 0.2f;
+    param.Steer_Kd = 0;
 }
-//角速度环pid
-float Angle_Velocity(float Gyro,float Gyro_Target)
+
+float Angle_Velocity(float Gyro, float Gyro_Target)
 {
     float Angle_Velocity_Bias;
     float PWM_Out;
-    static float Angle_Velocity_Last_Bias,Angle_Velocity_Integral;
+    static float Angle_Velocity_Last_Bias, Angle_Velocity_Integral;
+
     Angle_Velocity_Bias = Gyro - Gyro_Target;
-    Angle_Velocity_Integral+=Angle_Velocity_Bias;
-    if(Angle_Velocity_Integral > 10000)
-			Angle_Velocity_Integral =10000;                   
-    if(Angle_Velocity_Integral < -10000) 
-			Angle_Velocity_Integral = -10000;        
-		
-    PWM_Out = param.angular_v_kp * Angle_Velocity_Bias + param.angular_v_ki * Angle_Velocity_Integral + param.angular_v_kd * (Angle_Velocity_Bias - Angle_Velocity_Last_Bias);
-    Angle_Velocity_Last_Bias = Angle_Velocity_Bias;                             //保留上次误差
+    Angle_Velocity_Integral += Angle_Velocity_Bias;
+
+    if(Angle_Velocity_Integral > 10000) Angle_Velocity_Integral = 10000;
+    if(Angle_Velocity_Integral < -10000) Angle_Velocity_Integral = -10000;
+
+    PWM_Out = param.angular_v_kp * Angle_Velocity_Bias
+            + param.angular_v_ki * Angle_Velocity_Integral
+            + param.angular_v_kd * (Angle_Velocity_Bias - Angle_Velocity_Last_Bias);
+
+    Angle_Velocity_Last_Bias = Angle_Velocity_Bias;
     return PWM_Out;
 }
-//角度环pid
-float X_balance_Control(float Angle,float Angle_Zero,float gyro)
+
+float X_balance_Control(float Angle, float Angle_Zero, float gyro)
 {
-     float PWM,Bias;
-     static float error;
-     Bias=Angle-Angle_Zero;                                            //获取偏差
-     error+=Bias;                                                      //偏差累积
-     if(error>+30) error=+30;                                          //积分限幅
-     if(error<-30) error=-30;                                          //积分限幅
-     PWM=param.angular_kp*Bias + param.angular_ki*error + (gyro)*param.angular_kd;   //获取最终数值
-     return PWM;
+    float PWM, Bias;
+    static float error;
+
+    Bias = Angle - Angle_Zero;
+    error += Bias;
+
+    if(error > +30) error = +30;
+    if(error < -30) error = -30;
+
+    PWM = param.angular_kp * Bias + param.angular_ki * error + gyro * param.angular_kd;
+    return PWM;
 }
-//速度环pid
-float Velocity_Control(int encoder,int target_encoder)
+
+float Velocity_Control(int encoder, int target_encoder)
 {
-    float encoder_bias,Velocity;
+    float encoder_bias, Velocity;
     static float encoder_bias_integral;
+
     encoder_bias = encoder - target_encoder;
     encoder_bias_integral += encoder_bias;
-    if(encoder_bias_integral > +200) 
-			encoder_bias_integral = +200;                    //积分限幅
-    if(encoder_bias_integral < -200) 
-			encoder_bias_integral = -200;                    //积分限幅是500
-    Velocity = encoder_bias * param.fly_wheel_speed_kp/10 + encoder_bias_integral * param.fly_wheel_speed_ki/1000;
+
+    if(encoder_bias_integral > +200) encoder_bias_integral = +200;
+    if(encoder_bias_integral < -200) encoder_bias_integral = -200;
+
+    Velocity = encoder_bias * param.fly_wheel_speed_kp / 10.0f
+             + encoder_bias_integral * param.fly_wheel_speed_ki / 1000.0f;
     return Velocity;
 }
 
 void balance(void)
 {
-    cnt++;																																																
-    cnt1++;																																												
-														 																																				
-		if(cnt1>=80){PWM_accel = Velocity_Control(odrive.now_speed0 , 0);cnt1=0;}                              
-    if(cnt>=15){PWM_X = X_balance_Control(imu.rol,param.angular_zero+PWM_accel,imu.vx);cnt=0;}	          
-    PWM_Final = Angle_Velocity(imu.vx,PWM_X);       																									
-    odrive.set_speed0 = PWM_Final;																																					
-			  																																														
-    if(odrive.set_speed0>fly_wheel_rate_limit) odrive.set_speed0=fly_wheel_rate_limit;      					
-    else if(odrive.set_speed0<-fly_wheel_rate_limit) odrive.set_speed0=-fly_wheel_rate_limit; 							 
-																																																						 
-    if((imu.rol-(param.angular_zero))>3 || (imu.rol-(param.angular_zero))<-3)
-		{
-			param.scope_flag=0;
-			odrive.set_speed0=odrive.set_speed1=0;
-			param.run_flag=0;
-			key_times=0;
-			last_rate=0;
-			low_speed_flag=0;
-		}    
-		if(param.scope_flag==0)
-			PWM_Final=0;
-   // odrive.set_speed0 =1;角度左正右负 电机左正右负  
-		
+    cnt++;
+    cnt1++;
+
+    if(cnt1 >= 80)
+    {
+        PWM_accel = Velocity_Control((int)odrive.now_speed0, 0);
+        cnt1 = 0;
+    }
+
+    if(cnt >= 15)
+    {
+        PWM_X = X_balance_Control(imu.rol, param.angular_zero + PWM_accel, imu.vx);
+        cnt = 0;
+    }
+
+    PWM_Final = Angle_Velocity(imu.vx, PWM_X);
+    odrive.set_speed0 = PWM_Final;
+
+    if(odrive.set_speed0 > fly_wheel_rate_limit)
+        odrive.set_speed0 = fly_wheel_rate_limit;
+    else if(odrive.set_speed0 < -fly_wheel_rate_limit)
+        odrive.set_speed0 = -fly_wheel_rate_limit;
+
+    /* 调试初期建议 6~8 度，调稳后可缩小 */
+    if((imu.rol - param.angular_zero) > 8.0f || (imu.rol - param.angular_zero) < -8.0f)
+    {
+        param.scope_flag = 0;
+        odrive.set_speed0 = 0;
+        odrive.set_speed1 = 0;
+        param.run_flag = 0;
+        key_times = 0;
+        last_rate = 0;
+        low_speed_flag = 0;
+    }
+
+    if(param.scope_flag == 0)
+    {
+        PWM_Final = 0;
+    }
 }
 
 int my_abs(int x)
 {
-	  float m;
-    if(x>=0)
-        m= x;
-    else if(x<0)
-        m= -x;
-		return m;
-}
-float my_fabs(float x)
-{
-	  float m;
-    if(x>=0)
-        m= x;
-    else if(x<0)
-        m= -x;
-		return m;
+    return x >= 0 ? x : -x;
 }
 
+float my_fabs(float x)
+{
+    return x >= 0 ? x : -x;
+}
